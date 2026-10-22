@@ -44,6 +44,14 @@ if [ ! -f "$CONF_PATH/tools_def.txt" ]; then
   echo "error: no EDK II Conf in $CONF_PATH; run \"unixnu build package\" first" >&2
   exit 1
 fi
+# DroidVM's patch for DarwinBoot (a module of its own repository): the kernel owns the RAM up to /chosen/darwinboot-memory-limit
+# (make-droidvm-adt.py --reclaim-memory), not only the loaded window. Applied once to the checkout, which stays dirty on purpose.
+PATCH=$(cd "$(dirname "${BASH_SOURCE[0]}")/../patches" && pwd)/darwinboot-reclaim-memory.patch
+if git -C "$TREE/drivers/DarwinBoot" apply --reverse --check "$PATCH" >/dev/null 2>&1; then
+  echo "DarwinBoot: reclaim-memory patch already applied"
+else
+  git -C "$TREE/drivers/DarwinBoot" apply "$PATCH"
+fi
 build -p DarwinBootPkg/DarwinBoot.dsc -a AARCH64 -b "$TARGET" -t CLANGPDB -n "$JOBS"
 OUT=$BUILD_DIR/Build/Out/AARCH64-$TARGET
 mkdir -p "$OUT"
