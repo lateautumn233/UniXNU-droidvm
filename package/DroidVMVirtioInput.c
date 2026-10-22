@@ -212,6 +212,8 @@ static int32_t input_scale(int32_t value, int32_t min, int32_t span, int32_t axi
 // The digitizer's report count when the finger set was last published.
 static uint32_t droidvm_published_at;
 
+extern void droidvm_touch_notify(void);   // DroidVMStubs.c: tells NativeHidInput's digitizer that a frame was published
+
 static void touch_publish(const struct droidvm_finger *fingers, unsigned count) {
     droidvm_published_at = native_touch_hid_reports;
     uint32_t seq = native_touch_seq & ~1u;
@@ -226,6 +228,7 @@ static void touch_publish(const struct droidvm_finger *fingers, unsigned count) 
     __asm__ volatile("dmb ish" ::: "memory");
     native_touch_seq = seq + 2;
     droidvm_input_published = droidvm_input_published + 1;
+    droidvm_touch_notify();
 }
 
 // Waits (bounded) until the digitizer has turned the last publication into a report.

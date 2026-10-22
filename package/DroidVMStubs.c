@@ -28,13 +28,18 @@ volatile uint32_t native_touch_count;
 volatile uint32_t native_touch_hid_reports;
 volatile int native_touch_xs[NATIVE_TOUCH_SLOTS], native_touch_ys[NATIVE_TOUCH_SLOTS], native_touch_ids[NATIVE_TOUCH_SLOTS];
 
-// NativeHidInput registers a sink here (weak import) so a touch thread can report the moment it publishes a frame. The virtio input
-// publishes at the guest's own pace and NativeHidInput polls every 8 ms, so the sink is only remembered, never called.
-static void (*native_touch_sink)(void *);
-static void *native_touch_sink_context;
+// NativeHidInput registers a sink here (weak import): the touch thread calls it after it publishes a frame and the digitizer then sends the
+// report from its work loop; nothing polls the seqlock any more. DroidVMVirtioInput.c is the touch thread here (droidvm_touch_notify).
+static void (*volatile native_touch_sink)(void *);
+static void *volatile native_touch_sink_context;
 void native_touch_set_sink(void (*sink)(void *), void *context) {
     native_touch_sink_context = context;
+    __asm__ volatile("dmb ish" ::: "memory");
     native_touch_sink = sink;
+}
+void droidvm_touch_notify(void) {
+    void (*sink)(void *) = native_touch_sink;
+    if (sink) sink(native_touch_sink_context);
 }
 
 // The diagnostic page's extension rows (XNU_BOOT_PROGRESS); written by the key-store probe, read by nobody here.
