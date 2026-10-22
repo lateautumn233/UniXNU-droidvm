@@ -5,7 +5,7 @@ NativeAdreno's user client, IOKit surface, execbuf and memory (NativeAdrenoUserC
 NativeAdrenoMemory, NativeAdrenoCpu) and the PM4 encoder they call are compiled unchanged, except for a few lines of two
 files, compiled from staged copies: NativeAdrenoPublish.cpp's client windows are absolute addresses of sheng's GPU address space
 (0x20000000..), and here the space is the KGSL VBO the host reserved, so they are offset from droidvm_gpu_window_base() (the VBO's
-start), and there are six of them instead of three (below); NativeAdrenoUserClient.cpp's setScope() refuses a new connection
+start), and there are six of them (below); NativeAdrenoUserClient.cpp's setScope() refuses a new connection
 while the render server has jobs in flight (below). The hardware classes (NativeAdrenoVm, NativeAdrenoRing, NativeAdrenoTimer)
 come from DroidVMGpu.cpp instead of their own sources. The staged AGXAccelerator (build-native-adreno-accelerator.py) rides
 along for droidvm-gpu-metal=1.
@@ -62,29 +62,29 @@ if publish.count(anchor) != 1:
     sys.exit('NativeAdrenoPublish.cpp include anchor not found')
 publish = publish.replace(anchor, anchor + '/* DroidVM: the clients\' windows start at the VBO (kits/droidvm/DroidVMGpu.cpp). */\n'
                           'extern "C" uint64_t droidvm_gpu_window_base(void);\n')
-# Six connections instead of three: the render server, the widget renderer and the wallpaper already take three, and iconservicesagent
-# (the app icons) needs a fourth. The added windows follow the others (256 MiB each), still inside the 3 GiB of the VBO that
-# DroidVMGpu.cpp requires; sheng's aperture ends at the third.
-table = ('enum : unsigned {NativeAdrenoMaxClients=3};\n'
-         'static const struct {uint64_t start,bytes;} kClientWindows[NativeAdrenoMaxClients]={\n'
-         '    {0x20000000ull,0x40000000ull},{0x60000000ull,0x10000000ull},{0x70000000ull,0x10000000ull}};')
-if publish.count(table) != 1:
-    sys.exit('NativeAdrenoPublish.cpp no longer declares the three client windows')
-publish = publish.replace(table, 'enum : unsigned {NativeAdrenoMaxClients=6};\n'
-                          'static const struct {uint64_t start,bytes;} kClientWindows[NativeAdrenoMaxClients]={\n'
-                          '    {0x20000000ull,0x40000000ull},{0x60000000ull,0x10000000ull},{0x70000000ull,0x10000000ull},\n'
-                          '    {0x80000000ull,0x10000000ull},{0x90000000ull,0x10000000ull},{0xa0000000ull,0x10000000ull}};')
+# Six connections: the render server, the widget renderer, the wallpaper and iconservicesagent (the app icons) already take four in
+# NativeAdreno (sheng's aperture ends at the fourth); the added windows follow the others, still inside the 3 GiB of the VBO that
+# DroidVMGpu.cpp requires. The table is replaced whatever its current contents, so upstream resizing the windows needs no edit here.
+import re
+table = re.search(r'enum : unsigned \{NativeAdrenoMaxClients=\d+\};\nstatic const struct \{uint64_t start,bytes;\} kClientWindows'
+                  r'\[NativeAdrenoMaxClients\]=\{[^;]*\};', publish)
+if not table or len(re.findall(r'kClientWindows\[NativeAdrenoMaxClients\]=', publish)) != 1:
+    sys.exit('NativeAdrenoPublish.cpp no longer declares its client windows as one table')
+windows = ['{0x20000000ull,0x40000000ull}'] + ['{0x%xull,0x0AAA9000ull}' % (0x60000000 + 0x0AAA9000 * i) for i in range(5)]
+publish = publish.replace(table.group(0), 'enum : unsigned {NativeAdrenoMaxClients=6};\n'
+                          'static const struct {uint64_t start,bytes;} kClientWindows[NativeAdrenoMaxClients]={\n    ' +
+                          ',\n    '.join(windows) + '};')
 staged = OUT / 'NativeAdrenoPublish.cpp'
 staged.write_text(publish)
 
-# A new connection's setScope() also asks whether its current queue range has jobs outstanding, and an unscoped core's range is 0,
-# the render server's: while the render server has a job in flight every other process's open fails with kIOReturnBusy (a listed
-# client then keeps the software renderer for good). The old range matters only once the core was scoped.
+# A new connection's setScope() must not ask whether the render server's range (the default 0 of an unscoped core) has jobs outstanding,
+# or every other process's open fails with kIOReturnBusy. NativeAdreno now does that itself (ownRangeOutstanding); older sources are patched.
 client = (ADRENO / 'NativeAdrenoUserClient.cpp').read_text()
 check = 'if(liveObjects() || submit_->rangeOutstanding(queue_base_,NativeAdrenoAbiMaxQueues) ||'
-if client.count(check) != 1:
-    sys.exit('NativeAdrenoUserClient.cpp no longer checks the old queue range in setScope exactly once')
-client = client.replace(check, 'if(liveObjects() || (window_bytes_ && submit_->rangeOutstanding(queue_base_,NativeAdrenoAbiMaxQueues)) ||')
+if 'ownRangeOutstanding' not in client:
+    if client.count(check) != 1:
+        sys.exit('NativeAdrenoUserClient.cpp no longer checks the old queue range in setScope exactly once')
+    client = client.replace(check, 'if(liveObjects() || (window_bytes_ && submit_->rangeOutstanding(queue_base_,NativeAdrenoAbiMaxQueues)) ||')
 staged_client = OUT / 'NativeAdrenoUserClient.cpp'
 staged_client.write_text(client)
 
