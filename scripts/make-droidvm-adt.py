@@ -198,6 +198,8 @@ def main():
     parser.add_argument('--data-ramdisk', action='store_true',
                         help='/chosen/memory-map RAMDisk placeholder; the loader fills in the real range')
     parser.add_argument('--trust-cache', action='store_true', help='Zeroed TrustCache sidecar handoff placeholder')
+    parser.add_argument('--gpu-addon', action='store_true',
+                        help='Zeroed GpuAddon sidecar handoff placeholder (the loader fills in kernel.macho.gpuaddon)')
     parser.add_argument('--data-store-mmio', type=lambda value: int(value, 0), default=None,
                         help='Base of the FDT virtio-mmio window that holds the persistent Data store (/arm-io/data-store)')
     parser.add_argument('--display-gamut', choices=['P3', 'sRGB'], default='P3',
@@ -305,7 +307,8 @@ def main():
                         *empty_nvram_proxy()],
              [node('memory-map', ([('PackedRAMDisk' if args.packed_data_ramdisk else 'RAMDisk', bytes(16))]
                                   if (args.data_ramdisk or args.packed_data_ramdisk) else []) +
-                                 ([('TrustCache', bytes(16))] if args.trust_cache else [])),
+                                 ([('TrustCache', bytes(16))] if args.trust_cache else []) +
+                                 ([('GpuAddon', bytes(16))] if args.gpu_addon else [])),
               node('manifest-properties')]),
         node('cpus', children=cpus),
         *([node('psci', [('compatible', b'arm,psci-1.0\0'), ('method', psci_method.encode() + b'\0')])] if len(cpus) > 1 else []),
